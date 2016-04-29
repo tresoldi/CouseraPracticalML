@@ -1,0 +1,196 @@
+---
+title: "Practical ML - Predict activity quality from activity monitors"
+author: "Tiago Tresoldi"
+date: "April 29th, 2016"
+---
+
+# Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, we used data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants which were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Our goal was to predict the manner in which they did the exercise by using machine learning techniques.
+
+# Analysis
+
+## Data description
+
+More information on the data us available from the website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). For this data set, participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions. Fashions are stored in the outcome variable `classe`, and are:
+
+- exactly according to the specification (class A)
+- throwing the elbows to the front (class B)
+- lifting the dumbbell only halfway (class C)
+- lowering the dumbbell only halfway (class D)
+- throwing the hips to the front (class E)
+
+## System configuration
+
+We configure our R environment by loading required libraries, downloading and loading the data set (creating the directories do hold it, if needed), and setting a random set for a reproducible research.
+
+```{r, echo=TRUE, results='hide', message=FALSE, warning=FALSE}
+
+# load required libraries, installing them if needed
+if (!require("caret")) {
+  install.packages("caret")
+  library("caret")
+}
+
+if (!require("randomForest")) {
+  install.packages("randomForest")
+  library("randomForest")
+}
+
+if (!require("rpart")) {
+  install.packages("rpart")
+  library("rpart")
+}
+
+if (!require("rpart.plot")) {
+  install.packages("rpart.plot")
+  library("rpart.plot")
+}
+
+# Data variables
+training.url    <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test.cases.url  <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+training.file   <- './data/pml-training.csv'
+test.cases.file <- './data/pml-testing.csv'
+
+# Create directories to hold data, if needed
+if (!file.exists("data")) {
+  dir.create("data")
+}
+if (!file.exists("data/submission")) {
+  dir.create("data/submission")
+}
+
+# Download data
+download.file(training.url, training.file)
+download.file(test.cases.url,test.cases.file )
+
+# Set seed for reproducibility
+set.seed(1234)
+```
+
+## Data processing
+
+We first process the downloaded data, removing `NA` data and columns which are irrelevant to the machine learning algorithms (descriptive values) from both the training and test sets.
+
+```{r, echo=TRUE, results='hide'}
+
+# load data, removing NAs
+training <- read.csv(training.file, na.strings=c("NA","#DIV/0!", ""))
+testing  <- read.csv(test.cases.file , na.strings=c("NA", "#DIV/0!", ""))
+
+# removes empties
+training <- training[,colSums(is.na(training)) == 0]
+testing  <- testing[,colSums(is.na(testing)) == 0]
+
+# remove useless columns
+training <- training[,-c(1:7)]
+testing  <- testing[,-c(1:7)]
+```
+
+We then partition the training data into training (75%) and testing (25%) categories, for performing cross-validation.
+
+```{r, echo=TRUE, results='hide'}
+subsamples  <- createDataPartition(y=training$classe, p=0.75, list=FALSE)
+training.sub <- training[subsamples,]
+testing.sub  <- training[-subsamples,]
+```
+
+## Exploratory analysis
+
+We perform an initial exploratory analysis with a descriptive statistical summary of the training sub-sample, as we should not verify the data reserved for testing an cross-validation in order not to guide our methods and achieve an overfitting method.
+
+```{r, echo=TRUE}
+summary(training.sub)
+```
+
+We also perform an investigation of the `classe` variable (the outcome), which suggests `D` (lowering the dumbbell only halfway) as the least frequent level and `A` (exactly according to the specification) as the most common.
+
+```{r, echo=TRUE}
+table(training.sub$classe)
+plot(training.sub$classe, main="Frequency of 'classe' levels", xlab="'classe' level", ylab="Frequency")
+```
+
+## Prediction models
+
+In this section, we apply two different machine learning methods to generate models for prediction, testing the results while verifying how each model performs on the cross validation set that we held out from training.
+
+### Decision tree
+
+We build a first model using recursive partitioning and regression trees, printing and plotting it. The first node division is related to the variable `roll_belt` being less than 130.5.
+
+```{r, echo=TRUE}
+# fit model
+rpart.model <- rpart(classe ~ ., data=training.sub, method="class")
+
+# print the model
+rpart.model
+
+# plot the result
+rpart.plot(rpart.model, main="Classification Tree", extra=2, under=TRUE, faclen=0)
+```
+
+We predict outcome values on the `testing.sub` data to evaluate the model, analyzing the results with a confusion matrix. As an overall statistic, the accuracy of our model is found to be 0.74.
+
+```{r, echo=TRUE}
+# predict values
+rpart.predict <- predict(rpart.model, testing.sub, type = "class")
+
+# print confustion matrix
+confusionMatrix(rpart.predict, testing.sub$classe)
+```
+
+### Random forest
+
+We build a second model using random forest, printing and plotting it. The model used 500 trees and the plot shows that at about 100 the model has already achieved the best possible performance.
+
+```{r, echo=TRUE}
+# fit model
+rf.model <- randomForest(classe ~ ., data=training.sub, method="class")
+
+# print the model
+rf.model
+
+plot(rf.model)
+```
+
+Once more, we predict outcome values on the `testing.sub` data to evaluate the model, analyzing the results with a confusion matrix. As an overall statistic, the accuracy of this model is found to be of 0.99, far better than the previous one and with no expected improvement.
+
+```{r, echo=TRUE}
+# predicti values
+rf.predict <- predict(rf.model, testing.sub, type = "class")
+
+# print confustion matrix
+confusionMatrix(rf.predict, testing.sub$classe)
+```
+
+## Conclusions
+
+### Result
+
+The Random Forest algorithm performed far better than the Decision Tree one, and as there seems to be no room for improvement is chosen without further model exploration. The expected out-of-sample error is estimated at 0.5%.
+
+# Submission
+
+The code below generates the data for project submission using the best model of the above analysis, i.e., the random forest model.
+
+```{r, echo=TRUE}
+# predict values
+predicted.values <- predict(rf.model, testing, type="class")
+
+# print predicted values
+predicted.values
+
+# output
+
+pml_write_files = function(x){
+  for (i in 1:length(x)){
+    filename = paste0("./data/submission/problem_id_",i,".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+
+pml_write_files(predicted.values)
+```
